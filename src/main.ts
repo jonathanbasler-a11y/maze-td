@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { BattleScene } from './scenes/BattleScene';
+import { getLayout } from './presentation/layout';
+
+const layout = getLayout();
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -8,8 +11,11 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 1120,
-    height: 720,
+    width: layout.width,
+    height: layout.height,
+  },
+  input: {
+    activePointers: 3,
   },
   scene: [BattleScene],
 };

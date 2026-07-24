@@ -7,6 +7,7 @@ import {
 } from '../content/research';
 import { towerFireRate } from '../content/towers';
 import { Look } from '../presentation/Look';
+import { getLayout, type Layout } from '../presentation/layout';
 import { SimState } from '../sim/SimState';
 import type { Cell, SimEvent, TowerId } from '../sim/types';
 
@@ -15,10 +16,6 @@ type CreepView = {
   barBg: Phaser.GameObjects.Rectangle;
   bar: Phaser.GameObjects.Rectangle;
 };
-
-const SIDEBAR_W = 236;
-const CANVAS_W = 1120;
-const CANVAS_H = 720;
 
 const DIGIT_KEYS = [
   'ONE',
@@ -33,6 +30,7 @@ const DIGIT_KEYS = [
 ] as const;
 
 export class BattleScene extends Phaser.Scene {
+  private layout!: Layout;
   private sim!: SimState;
   private campaign = CampaignMeta.load();
   private levelIndex = 0;
@@ -57,6 +55,7 @@ export class BattleScene extends Phaser.Scene {
   private sidebarBlurb!: Phaser.GameObjects.Text;
   private sidebarStats!: Phaser.GameObjects.Text;
   private sidebarRoster!: Phaser.GameObjects.Text;
+  private rosterHits: Phaser.GameObjects.Rectangle[] = [];
   private researchRoot!: Phaser.GameObjects.Container;
   private researchOpen = false;
   private researchRpText!: Phaser.GameObjects.Text;
@@ -87,12 +86,22 @@ export class BattleScene extends Phaser.Scene {
   private static readonly FEEDBACK_BOARD =
     'https://github.com/jonathanbasler-a11y/maze-td/issues?q=is%3Aissue+is%3Aopen';
 
+  private get W(): number {
+    return this.layout.width;
+  }
+  private get H(): number {
+    return this.layout.height;
+  }
+  private get SW(): number {
+    return this.layout.sidebarW;
+  }
 
   constructor() {
     super('Battle');
   }
 
   init(data?: { levelIndex?: number }): void {
+    this.layout = getLayout();
     const fromRegistry = this.registry.get('levelIndex') as number | undefined;
     this.levelIndex = clampLevelIndex(data?.levelIndex ?? fromRegistry ?? 0);
     this.registry.set('levelIndex', this.levelIndex);
@@ -120,51 +129,53 @@ export class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(Look.bg);
+    const L = this.layout;
+    const logoSize = L.mobile ? 52 : 44;
 
     this.add
-      .image(28, 28, 'logo')
-      .setDisplaySize(44, 44)
+      .image(20, 16, 'logo')
+      .setDisplaySize(logoSize, logoSize)
       .setOrigin(0, 0)
       .setDepth(20);
 
     this.title = this.add
-      .text(84, 16, 'MAZE TD', {
+      .text(20 + logoSize + 12, L.mobile ? 14 : 16, 'MAZE TD', {
         fontFamily: 'Georgia, "Times New Roman", serif',
-        fontSize: '24px',
+        fontSize: L.titleFont,
         color: Look.textGold,
       })
       .setDepth(20);
 
     this.hudPanel = this.add.graphics().setDepth(19);
     this.hud = this.add
-      .text(84, 44, '', {
+      .text(20 + logoSize + 12, L.mobile ? 44 : 44, '', {
         fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '13px',
+        fontSize: L.hudFont,
         color: Look.text,
       })
       .setDepth(20);
 
     this.levelHud = this.add
-      .text(84, 64, '', {
+      .text(20 + logoSize + 12, L.mobile ? 66 : 64, '', {
         fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '12px',
+        fontSize: L.hudFontSm,
         color: Look.textMuted,
       })
       .setDepth(20);
 
     this.toast = this.add
-      .text(CANVAS_W / 2 - SIDEBAR_W / 2, 48, '', {
+      .text(this.W / 2 - this.SW / 2, L.mobile ? 40 : 48, '', {
         fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '13px',
+        fontSize: L.mobile ? '16px' : '13px',
         color: '#f0a0a0',
       })
       .setOrigin(0.5, 0)
       .setDepth(20);
 
     this.statusBanner = this.add
-      .text(CANVAS_W / 2 - SIDEBAR_W / 2, 20, '', {
+      .text(this.W / 2 - this.SW / 2, L.mobile ? 12 : 20, '', {
         fontFamily: 'Georgia, serif',
-        fontSize: '18px',
+        fontSize: L.mobile ? '22px' : '18px',
         color: Look.textGold,
       })
       .setOrigin(0.5, 0)
@@ -174,26 +185,13 @@ export class BattleScene extends Phaser.Scene {
     this.buildSidebar();
     this.buildResearchPanel();
 
-    const footerH = 36;
+    // Bottom chrome for controls
+    const barH = L.touchBarH + (L.footerH > 0 ? 8 : 8);
     const footer = this.add.graphics().setDepth(19);
-    footer.fillStyle(0x121610, 0.88);
-    footer.fillRect(0, CANVAS_H - footerH, CANVAS_W, footerH);
-    footer.lineStyle(1, Look.panelStroke, 0.35);
-    footer.lineBetween(0, CANVAS_H - footerH, CANVAS_W, CANVAS_H - footerH);
-
-    this.add
-      .text(
-        24,
-        CANVAS_H - footerH / 2,
-        'Tap place  ·  Sell mode  ·  Research  ·  N/P level',
-        {
-          fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '12px',
-          color: Look.text,
-        },
-      )
-      .setOrigin(0, 0.5)
-      .setDepth(20);
+    footer.fillStyle(0x0e120c, 0.94);
+    footer.fillRect(0, this.H - barH, this.W, barH);
+    footer.lineStyle(2, Look.panelStroke, 0.45);
+    footer.lineBetween(0, this.H - barH, this.W, this.H - barH);
 
     this.buildTouchBar();
     this.buildFeedbackPanel();
@@ -201,7 +199,7 @@ export class BattleScene extends Phaser.Scene {
     this.startLevel(this.levelIndex);
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (this.researchOpen) return;
+      if (this.researchOpen || this.feedbackOpen) return;
       const cell = this.pointerToCell(p.x, p.y);
       this.hover = cell;
       const key = cell ? `${cell.c},${cell.r}` : '';
@@ -212,11 +210,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.researchOpen || this.feedbackOpen) return;
-      // Ignore taps on the touch bar strip
-      if (p.y >= CANVAS_H - 78 && p.x > CANVAS_W - SIDEBAR_W - 20) return;
-      if (p.y >= CANVAS_H - 78 && p.x < 520) {
-        /* allow board; touch bar is mid-bottom via buttons only */
-      }
+      if (p.y >= this.H - barH) return;
       const cell = this.pointerToCell(p.x, p.y);
       if (!cell) return;
       if (this.sellMode || p.rightButtonDown() || p.button === 2) {
@@ -393,72 +387,84 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private buildTouchBar(): void {
-    const y = CANVAS_H - 58;
-    const mk = (
-      x: number,
-      label: string,
-      onClick: () => void,
-      w = 78,
-    ): Phaser.GameObjects.Text => {
+    const L = this.layout;
+    const y = this.H - L.touchBarH / 2 - 4;
+    const gap = L.mobile ? 8 : 10;
+    const labels: { label: string; fn: () => void; sell?: boolean }[] = [
+      { label: 'Feedback', fn: () => this.toggleFeedback() },
+      {
+        label: 'Sell',
+        fn: () => {
+          this.sellMode = !this.sellMode;
+          this.sellBtnLabel.setColor(this.sellMode ? '#f0a0a0' : Look.textGold);
+          this.flashToast(this.sellMode ? 'sell mode on' : 'sell mode off');
+        },
+        sell: true,
+      },
+      { label: 'Research', fn: () => this.toggleResearch() },
+      {
+        label: 'Pause',
+        fn: () => {
+          this.paused = !this.paused;
+          if (this.paused) this.tweens.pauseAll();
+          else this.tweens.resumeAll();
+          this.sim.dirty = true;
+        },
+      },
+      { label: 'Restart', fn: () => this.startLevel(this.levelIndex) },
+      {
+        label: 'Next ▶',
+        fn: () => this.startLevel(clampLevelIndex(this.levelIndex + 1)),
+      },
+    ];
+
+    const totalW =
+      labels.length * L.btnW + (labels.length - 1) * gap;
+    let x = (this.W - this.SW - totalW) / 2 + L.btnW / 2;
+
+    for (const item of labels) {
       const bg = this.add
-        .rectangle(x, y, w, 28, Look.panelFill, 0.95)
-        .setStrokeStyle(1.5, Look.panelStroke, 0.9)
+        .rectangle(x, y, L.btnW, L.btnH, 0x2a342c, 0.98)
+        .setStrokeStyle(2, Look.panelStroke, 0.95)
         .setDepth(30)
         .setInteractive({ useHandCursor: true });
       bg.on('pointerdown', (p: Phaser.Input.Pointer) => {
         p.event.stopPropagation();
-        onClick();
+        item.fn();
       });
       const t = this.add
-        .text(x, y, label, {
+        .text(x, y, item.label, {
           fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '12px',
+          fontSize: L.btnFont,
           color: Look.textGold,
+          fontStyle: 'bold',
         })
         .setOrigin(0.5)
         .setDepth(31);
-      return t;
-    };
-
-    const cx = CANVAS_W / 2 - 40;
-    mk(cx - 280, 'Feedback', () => this.toggleFeedback(), 86);
-    this.sellBtnLabel = mk(cx - 180, 'Sell', () => {
-      this.sellMode = !this.sellMode;
-      this.sellBtnLabel.setColor(this.sellMode ? '#f0a0a0' : Look.textGold);
-      this.flashToast(this.sellMode ? 'sell mode on' : 'sell mode off');
-    });
-    mk(cx - 90, 'Research', () => this.toggleResearch());
-    mk(cx, 'Pause', () => {
-      this.paused = !this.paused;
-      if (this.paused) this.tweens.pauseAll();
-      else this.tweens.resumeAll();
-      this.sim.dirty = true;
-    });
-    mk(cx + 90, 'Restart', () => this.startLevel(this.levelIndex));
-    mk(cx + 180, 'Next ▶', () =>
-      this.startLevel(clampLevelIndex(this.levelIndex + 1)),
-    );
+      if (item.sell) this.sellBtnLabel = t;
+      x += L.btnW + gap;
+    }
   }
 
   private buildFeedbackPanel(): void {
     this.feedbackRoot = this.add.container(0, 0).setDepth(45).setVisible(false);
 
     const veil = this.add
-      .rectangle(CANVAS_W / 2, CANVAS_H / 2, CANVAS_W, CANVAS_H, 0x0a0c08, 0.7)
+      .rectangle(this.W / 2, this.H / 2, this.W, this.H, 0x0a0c08, 0.7)
       .setInteractive();
     veil.on('pointerdown', () => this.toggleFeedback(false));
     this.feedbackRoot.add(veil);
 
     const panel = this.add.graphics();
     panel.fillStyle(Look.panelFill, 0.98);
-    panel.fillRoundedRect(CANVAS_W / 2 - 220, CANVAS_H / 2 - 150, 440, 300, 12);
+    panel.fillRoundedRect(this.W / 2 - 220, this.H / 2 - 150, 440, 300, 12);
     panel.lineStyle(2, Look.panelStroke, 0.95);
-    panel.strokeRoundedRect(CANVAS_W / 2 - 220, CANVAS_H / 2 - 150, 440, 300, 12);
+    panel.strokeRoundedRect(this.W / 2 - 220, this.H / 2 - 150, 440, 300, 12);
     this.feedbackRoot.add(panel);
 
     this.feedbackRoot.add(
       this.add
-        .text(CANVAS_W / 2, CANVAS_H / 2 - 120, 'Track for later', {
+        .text(this.W / 2, this.H / 2 - 120, 'Track for later', {
           fontFamily: 'Georgia, serif',
           fontSize: '24px',
           color: Look.textGold,
@@ -468,8 +474,8 @@ export class BattleScene extends Phaser.Scene {
     this.feedbackRoot.add(
       this.add
         .text(
-          CANVAS_W / 2,
-          CANVAS_H / 2 - 85,
+          this.W / 2,
+          this.H / 2 - 85,
           'File a bug or improvement on GitHub.\nOpens in Safari — come back anytime.',
           {
             fontFamily: 'Segoe UI, sans-serif',
@@ -482,9 +488,11 @@ export class BattleScene extends Phaser.Scene {
     );
 
     const mkBtn = (y: number, label: string, url: string): void => {
+      const btnH = this.layout.mobile ? 56 : 44;
+      const btnW = this.layout.mobile ? 340 : 300;
       const btn = this.add
-        .rectangle(CANVAS_W / 2, y, 300, 44, 0x2a3224, 0.98)
-        .setStrokeStyle(1.5, Look.panelStroke, 0.9)
+        .rectangle(this.W / 2, y, btnW, btnH, 0x2a3224, 0.98)
+        .setStrokeStyle(2, Look.panelStroke, 0.9)
         .setInteractive({ useHandCursor: true });
       btn.on('pointerdown', (p: Phaser.Input.Pointer) => {
         p.event.stopPropagation();
@@ -494,21 +502,22 @@ export class BattleScene extends Phaser.Scene {
       this.feedbackRoot.add(btn);
       this.feedbackRoot.add(
         this.add
-          .text(CANVAS_W / 2, y, label, {
+          .text(this.W / 2, y, label, {
             fontFamily: 'Segoe UI, sans-serif',
-            fontSize: '16px',
+            fontSize: this.layout.mobile ? '20px' : '16px',
             color: Look.textGold,
+            fontStyle: 'bold',
           })
           .setOrigin(0.5),
       );
     };
 
-    mkBtn(CANVAS_H / 2 - 20, 'Report a bug', BattleScene.FEEDBACK_BUG);
-    mkBtn(CANVAS_H / 2 + 40, 'Suggest improvement', BattleScene.FEEDBACK_IMPROVEMENT);
-    mkBtn(CANVAS_H / 2 + 100, 'Open backlog', BattleScene.FEEDBACK_BOARD);
+    mkBtn(this.H / 2 - 20, 'Report a bug', BattleScene.FEEDBACK_BUG);
+    mkBtn(this.H / 2 + 40, 'Suggest improvement', BattleScene.FEEDBACK_IMPROVEMENT);
+    mkBtn(this.H / 2 + 100, 'Open backlog', BattleScene.FEEDBACK_BOARD);
 
     const close = this.add
-      .text(CANVAS_W / 2, CANVAS_H / 2 + 145, 'Close', {
+      .text(this.W / 2, this.H / 2 + 145, 'Close', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '13px',
         color: Look.textMuted,
@@ -539,10 +548,10 @@ export class BattleScene extends Phaser.Scene {
     this.researchRoot = this.add.container(0, 0).setDepth(40).setVisible(false);
 
     const veil = this.add.rectangle(
-      CANVAS_W / 2,
-      CANVAS_H / 2,
-      CANVAS_W,
-      CANVAS_H,
+      this.W / 2,
+      this.H / 2,
+      this.W,
+      this.H,
       0x0a0c08,
       0.72,
     );
@@ -551,9 +560,9 @@ export class BattleScene extends Phaser.Scene {
 
     const panel = this.add.graphics();
     panel.fillStyle(Look.panelFill, 0.97);
-    panel.fillRoundedRect(48, 56, CANVAS_W - 96, CANVAS_H - 112, 12);
+    panel.fillRoundedRect(48, 56, this.W - 96, this.H - 112, 12);
     panel.lineStyle(2, Look.panelStroke, 0.95);
-    panel.strokeRoundedRect(48, 56, CANVAS_W - 96, CANVAS_H - 112, 12);
+    panel.strokeRoundedRect(48, 56, this.W - 96, this.H - 112, 12);
     this.researchRoot.add(panel);
 
     this.researchRoot.add(
@@ -567,7 +576,7 @@ export class BattleScene extends Phaser.Scene {
     );
 
     this.researchRpText = this.add
-      .text(CANVAS_W - 72, 78, '', {
+      .text(this.W - 72, 78, '', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '16px',
         color: Look.text,
@@ -589,15 +598,15 @@ export class BattleScene extends Phaser.Scene {
         ),
     );
 
-    const cellW = 148;
-    const cellH = 78;
-    const originX = 72;
-    const originY = 140;
+    const cellW = this.layout.mobile ? 110 : 148;
+    const cellH = this.layout.mobile ? 56 : 78;
+    const originX = this.layout.mobile ? 36 : 72;
+    const originY = this.layout.mobile ? 100 : 140;
 
     this.researchNodeTexts = [];
     for (const node of RESEARCH_NODES) {
-      const x = originX + node.col * (cellW + 10);
-      const y = originY + node.row * (cellH + 8);
+      const x = originX + node.col * (cellW + (this.layout.mobile ? 6 : 10));
+      const y = originY + node.row * (cellH + (this.layout.mobile ? 4 : 8));
       const hit = this.add
         .rectangle(x + cellW / 2, y + cellH / 2, cellW, cellH, 0x2a3224, 0.95)
         .setStrokeStyle(1.5, Look.panelStroke, 0.8)
@@ -606,12 +615,12 @@ export class BattleScene extends Phaser.Scene {
       this.researchRoot.add(hit);
 
       const label = this.add
-        .text(x + 8, y + 8, '', {
+        .text(x + 6, y + 6, '', {
           fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '12px',
+          fontSize: this.layout.mobile ? '11px' : '12px',
           color: Look.text,
-          wordWrap: { width: cellW - 16 },
-          lineSpacing: 2,
+          wordWrap: { width: cellW - 12 },
+          lineSpacing: 1,
         })
         .setData('nodeId', node.id);
       this.researchRoot.add(label);
@@ -620,7 +629,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.researchRoot.add(
       this.add
-        .text(72, CANVAS_H - 72, 'Branches: Offense · Control · Economy · Structure', {
+        .text(72, this.H - 72, 'Branches: Offense · Control · Economy · Structure', {
           fontFamily: 'Segoe UI, sans-serif',
           fontSize: '11px',
           color: Look.textMuted,
@@ -675,17 +684,182 @@ export class BattleScene extends Phaser.Scene {
 
   private computeLayout(): void {
     const { width, height } = this.sim.grid;
-    const playW = CANVAS_W - SIDEBAR_W - 28;
-    const maxW = playW - 24;
-    const maxH = 520;
+    const L = this.layout;
+    const playW = this.W - this.SW - 20;
+    const maxW = playW - 16;
+    const maxH = L.boardMaxH;
+    const minCell = L.mobile ? 18 : 22;
+    const maxCell = L.mobile ? 32 : 40;
     this.cell = Math.max(
-      22,
-      Math.min(40, Math.floor(Math.min(maxW / width, maxH / height))),
+      minCell,
+      Math.min(maxCell, Math.floor(Math.min(maxW / width, maxH / height))),
     );
     const boardW = width * this.cell;
-    this.originX = Math.floor((playW - boardW) / 2) + 8;
-    this.originY = 100;
+    this.originX = Math.floor((playW - boardW) / 2) + 6;
+    this.originY = L.boardTop;
     void height;
+  }
+
+  private drawHudChrome(): void {
+    const g = this.hudPanel;
+    g.clear();
+    const L = this.layout;
+    const w = L.mobile ? this.W - this.SW - 28 : 640;
+    const h = L.mobile ? 58 : 70;
+    const x = L.mobile ? 12 : 76;
+    const y = 8;
+    g.fillStyle(Look.panelFill, 0.92);
+    g.fillRoundedRect(x, y, w, h, 8);
+    g.lineStyle(1.5, Look.panelStroke, 0.9);
+    g.strokeRoundedRect(x, y, w, h, 8);
+  }
+
+  private selectTower(id: TowerId): void {
+    this.sim.setSelectedTower(id);
+    this.updateHud(true);
+  }
+
+  private buildSidebar(): void {
+    const L = this.layout;
+    const x = this.W - this.SW - 8;
+    const y = L.mobile ? 72 : 96;
+    const h = this.H - y - L.touchBarH - 8;
+
+    this.sidebarPanel = this.add.graphics().setDepth(19);
+    this.sidebarPanel.fillStyle(Look.panelFill, 0.96);
+    this.sidebarPanel.fillRoundedRect(x, y, this.SW, h, 10);
+    this.sidebarPanel.lineStyle(2, Look.panelStroke, 0.9);
+    this.sidebarPanel.strokeRoundedRect(x, y, this.SW, h, 10);
+
+    const iconSize = L.mobile ? 56 : 64;
+    this.sidebarIcon = this.add
+      .image(x + this.SW / 2, y + (L.mobile ? 40 : 52), 'tower_gun')
+      .setDisplaySize(iconSize, iconSize)
+      .setDepth(20);
+
+    this.sidebarTitle = this.add
+      .text(x + this.SW / 2, y + (L.mobile ? 78 : 28), '', {
+        fontFamily: 'Georgia, serif',
+        fontSize: L.mobile ? '18px' : '20px',
+        color: Look.textGold,
+      })
+      .setOrigin(L.mobile ? 0.5 : 0, L.mobile ? 0 : 0)
+      .setDepth(20);
+    if (!L.mobile) this.sidebarTitle.setPosition(x + 88, y + 28);
+
+    this.sidebarBlurb = this.add
+      .text(x + 10, y + (L.mobile ? 100 : 100), '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: L.mobile ? '13px' : '13px',
+        color: Look.text,
+        wordWrap: { width: this.SW - 20 },
+        lineSpacing: 3,
+      })
+      .setDepth(20)
+      .setVisible(!L.mobile);
+
+    this.sidebarStats = this.add
+      .text(x + 10, y + (L.mobile ? 102 : 170), '', {
+        fontFamily: 'Consolas, "Courier New", monospace',
+        fontSize: L.mobile ? '14px' : '13px',
+        color: Look.textMuted,
+        lineSpacing: L.mobile ? 4 : 6,
+      })
+      .setDepth(20);
+
+    this.sidebarRoster = this.add
+      .text(x + 10, y + h - (L.mobile ? 200 : 180), '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: L.rosterFont,
+        color: Look.text,
+        lineSpacing: 6,
+      })
+      .setDepth(20);
+
+    this.rosterHits = [];
+  }
+
+  private updateSidebar(force = false): void {
+    if (!this.sim || !this.sidebarTitle) return;
+    const id = this.sim.selectedTower;
+    const def = this.sim.towerDefs[id];
+    if (!def) return;
+    const key = `${id}|${def.cost}|${this.hotkeyIds.join(',')}|${this.campaign.rp}`;
+    if (!force && key === this.sidebarKey) return;
+    this.sidebarKey = key;
+    const L = this.layout;
+
+    const iconSize = L.mobile ? 56 : 64;
+    this.sidebarIcon.setTexture(def.spriteKey).setDisplaySize(iconSize, iconSize);
+    this.sidebarTitle.setText(def.name);
+    if (!L.mobile) this.sidebarBlurb.setText(def.blurb);
+
+    const rate = towerFireRate(def);
+    const dps =
+      rate > 0 && def.damage > 0 ? (def.damage * rate).toFixed(1) : '—';
+    if (L.mobile) {
+      this.sidebarStats.setText(
+        [
+          `${def.cost}g  ·  RP ${this.campaign.rp}`,
+          `Dmg ${def.damage || '—'}  Rng ${def.range || '—'}`,
+          `DPS ${dps}`,
+        ].join('\n'),
+      );
+    } else {
+      const hotkeySlot = this.hotkeyIds.indexOf(id);
+      const hotkey = hotkeySlot >= 0 ? String(hotkeySlot + 1) : '—';
+      this.sidebarStats.setText(
+        [
+          `Cost     ${def.cost}g`,
+          `Hotkey   ${hotkey}`,
+          `Damage   ${def.damage > 0 ? def.damage : '—'}`,
+          `Range    ${def.range > 0 ? `${def.range} cells` : '—'}`,
+          `Rate     ${rate > 0 ? `${rate.toFixed(2)} /s` : '—'}`,
+          `DPS      ${dps}`,
+          `Splash   ${def.splash > 0 ? `${def.splash} cells` : '—'}`,
+          `Slow     ${
+            def.slowTicks > 0
+              ? `${Math.round((1 - def.slowFactor) * 100)}% / ${(def.slowTicks / this.tickHz).toFixed(1)}s`
+              : '—'
+          }`,
+          `RP bank  ${this.campaign.rp}`,
+        ].join('\n'),
+      );
+    }
+
+    // Clear old roster hit targets
+    for (const hit of this.rosterHits) hit.destroy();
+    this.rosterHits = [];
+
+    const rosterLines = this.hotkeyIds.map((tid, i) => {
+      const t = this.sim.towerDefs[tid]!;
+      const mark = tid === id ? '▸' : ' ';
+      return `${mark}${i + 1} ${t.name}  ${t.cost}g`;
+    });
+    this.sidebarRoster.setText(`Towers\n${rosterLines.join('\n')}`);
+
+    // Large tap rows for each tower
+    const lineH = L.rosterLine + (L.mobile ? 10 : 2);
+    const baseY = this.sidebarRoster.y + (L.mobile ? 26 : 18);
+    const x = this.W - this.SW - 8;
+    this.hotkeyIds.forEach((tid, i) => {
+      const hit = this.add
+        .rectangle(
+          x + this.SW / 2,
+          baseY + i * lineH + lineH / 2,
+          this.SW - 12,
+          lineH - 2,
+          0x000000,
+          0.001,
+        )
+        .setDepth(22)
+        .setInteractive({ useHandCursor: true });
+      hit.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        p.event.stopPropagation();
+        this.selectTower(tid);
+      });
+      this.rosterHits.push(hit);
+    });
   }
 
   private rebuildBoard(): void {
@@ -771,127 +945,6 @@ export class BattleScene extends Phaser.Scene {
         this.rockLayer.add(img);
       }
     }
-  }
-
-  private drawHudChrome(): void {
-    const g = this.hudPanel;
-    g.clear();
-    g.fillStyle(Look.panelFill, 0.92);
-    g.fillRoundedRect(76, 12, 640, 70, 8);
-    g.lineStyle(1.5, Look.panelStroke, 0.9);
-    g.strokeRoundedRect(76, 12, 640, 70, 8);
-  }
-
-  private selectTower(id: TowerId): void {
-    this.sim.setSelectedTower(id);
-    this.updateHud(true);
-  }
-
-  private buildSidebar(): void {
-    const x = CANVAS_W - SIDEBAR_W - 12;
-    const y = 96;
-    const h = CANVAS_H - y - 28;
-
-    this.sidebarPanel = this.add.graphics().setDepth(19);
-    this.sidebarPanel.fillStyle(Look.panelFill, 0.94);
-    this.sidebarPanel.fillRoundedRect(x, y, SIDEBAR_W, h, 10);
-    this.sidebarPanel.lineStyle(1.5, Look.panelStroke, 0.85);
-    this.sidebarPanel.strokeRoundedRect(x, y, SIDEBAR_W, h, 10);
-
-    this.sidebarIcon = this.add
-      .image(x + 44, y + 52, 'tower_gun')
-      .setDisplaySize(64, 64)
-      .setDepth(20);
-
-    this.sidebarTitle = this.add
-      .text(x + 88, y + 28, '', {
-        fontFamily: 'Georgia, serif',
-        fontSize: '20px',
-        color: Look.textGold,
-      })
-      .setDepth(20);
-
-    this.sidebarBlurb = this.add
-      .text(x + 16, y + 100, '', {
-        fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '13px',
-        color: Look.text,
-        wordWrap: { width: SIDEBAR_W - 32 },
-        lineSpacing: 4,
-      })
-      .setDepth(20);
-
-    this.sidebarStats = this.add
-      .text(x + 16, y + 170, '', {
-        fontFamily: 'Consolas, "Courier New", monospace',
-        fontSize: '13px',
-        color: Look.textMuted,
-        lineSpacing: 6,
-      })
-      .setDepth(20);
-
-    this.sidebarRoster = this.add
-      .text(x + 16, y + h - 180, '', {
-        fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '11px',
-        color: Look.textMuted,
-        lineSpacing: 4,
-      })
-      .setDepth(20)
-      .setInteractive({ useHandCursor: true });
-    this.sidebarRoster.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      p.event.stopPropagation();
-      const localY = p.y - this.sidebarRoster.y;
-      // header line ~15px, then ~15px per roster row
-      const row = Math.floor((localY - 16) / 15);
-      const id = this.hotkeyIds[row];
-      if (id) this.selectTower(id);
-    });
-  }
-
-  private updateSidebar(force = false): void {
-    if (!this.sim || !this.sidebarTitle) return;
-    const id = this.sim.selectedTower;
-    const def = this.sim.towerDefs[id];
-    if (!def) return;
-    const key = `${id}|${def.cost}|${this.hotkeyIds.join(',')}|${this.campaign.rp}`;
-    if (!force && key === this.sidebarKey) return;
-    this.sidebarKey = key;
-
-    this.sidebarIcon.setTexture(def.spriteKey).setDisplaySize(64, 64);
-    this.sidebarTitle.setText(def.name);
-    this.sidebarBlurb.setText(def.blurb);
-
-    const hotkeySlot = this.hotkeyIds.indexOf(id);
-    const hotkey = hotkeySlot >= 0 ? String(hotkeySlot + 1) : '—';
-    const rate = towerFireRate(def);
-    const dps =
-      rate > 0 && def.damage > 0 ? (def.damage * rate).toFixed(1) : '—';
-    const lines = [
-      `Cost     ${def.cost}g`,
-      `Hotkey   ${hotkey}`,
-      `Damage   ${def.damage > 0 ? def.damage : '—'}`,
-      `Range    ${def.range > 0 ? `${def.range} cells` : '—'}`,
-      `Rate     ${rate > 0 ? `${rate.toFixed(2)} /s` : '—'}`,
-      `DPS      ${dps}`,
-      `Splash   ${def.splash > 0 ? `${def.splash} cells` : '—'}`,
-      `Slow     ${
-        def.slowTicks > 0
-          ? `${Math.round((1 - def.slowFactor) * 100)}% / ${(def.slowTicks / this.tickHz).toFixed(1)}s`
-          : '—'
-      }`,
-      `RP bank  ${this.campaign.rp}`,
-    ];
-    this.sidebarStats.setText(lines.join('\n'));
-
-    const roster = this.hotkeyIds
-      .map((tid, i) => {
-        const t = this.sim.towerDefs[tid]!;
-        const mark = tid === id ? '▸' : ' ';
-        return `${mark}${i + 1} ${t.name.padEnd(8)} ${t.cost}g`;
-      })
-      .join('\n');
-    this.sidebarRoster.setText(`Roster (Tab = research)\n${roster}`);
   }
 
   private pointerToCell(x: number, y: number): Cell | null {
