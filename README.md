@@ -2,11 +2,17 @@
 
 Phaser 3 maze tower defense. Play in the browser — including Safari on iOS.
 
-## Play on iOS
+## Play now
 
-1. Open the GitHub Pages URL in Safari
-2. Optional: Share → **Add to Home Screen** for fullscreen
-3. Tap board to place · **Sell** then tap a tower · **Research** for upgrades · sidebar to pick towers
+**https://jonathanbasler-a11y.github.io/maze-td/**
+
+On iPhone/iPad: open that link in Safari → Share → **Add to Home Screen** for fullscreen.
+
+Tap the board to place · **Sell** then tap a tower · **Research** for upgrades · tap roster lines in the sidebar to pick towers.
+
+## Repo
+
+https://github.com/jonathanbasler-a11y/maze-td
 
 ## Run locally
 
