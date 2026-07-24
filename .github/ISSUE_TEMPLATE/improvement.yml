@@ -1,0 +1,40 @@
+name: Improvement
+description: Idea, UX tweak, or balance change
+title: "[Improvement] "
+labels: ["improvement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - iOS / touch controls
+        - Gameplay / balance
+        - Research tree
+        - Visual / audio
+        - Performance
+        - Other
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should change?
+      description: The improvement you want when we come back to this.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      placeholder: Especially useful notes from playing on iOS…
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Rough priority
+      options:
+        - Nice to have
+        - Should fix soon
+        - Blocking play on iOS
+      default: 0

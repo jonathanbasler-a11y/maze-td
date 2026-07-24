@@ -1,0 +1,42 @@
+name: Bug
+description: Something broken or wrong while playing
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - iOS Safari
+        - iOS Home Screen (PWA)
+        - Desktop
+        - Other
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: level
+    attributes:
+      label: Level (if known)
+      placeholder: "e.g. L3 Arena Bowl"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw vs what you expected.
+      placeholder: "Towers wouldn't place after opening Research…"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra notes
+      placeholder: Device, iOS version, screenshot notes…

@@ -10,9 +10,13 @@ On iPhone/iPad: open that link in Safari → Share → **Add to Home Screen** fo
 
 Tap the board to place · **Sell** then tap a tower · **Research** for upgrades · tap roster lines in the sidebar to pick towers.
 
+**Feedback** (bottom bar) opens GitHub Issues so you can track bugs/improvements from iOS and pick them up later — see [docs/TRACKING.md](docs/TRACKING.md).
+
 ## Repo
 
 https://github.com/jonathanbasler-a11y/maze-td
+
+**Issues backlog:** https://github.com/jonathanbasler-a11y/maze-td/issues
 
 ## Run locally
 

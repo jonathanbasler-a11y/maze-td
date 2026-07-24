@@ -77,6 +77,16 @@ export class BattleScene extends Phaser.Scene {
   private hotkeyIds: TowerId[] = [];
   private sellMode = false;
   private sellBtnLabel!: Phaser.GameObjects.Text;
+  private feedbackRoot!: Phaser.GameObjects.Container;
+  private feedbackOpen = false;
+
+  private static readonly FEEDBACK_BUG =
+    'https://github.com/jonathanbasler-a11y/maze-td/issues/new?template=bug.yml&labels=bug,ios';
+  private static readonly FEEDBACK_IMPROVEMENT =
+    'https://github.com/jonathanbasler-a11y/maze-td/issues/new?template=improvement.yml&labels=improvement,ios';
+  private static readonly FEEDBACK_BOARD =
+    'https://github.com/jonathanbasler-a11y/maze-td/issues?q=is%3Aissue+is%3Aopen';
+
 
   constructor() {
     super('Battle');
@@ -186,6 +196,7 @@ export class BattleScene extends Phaser.Scene {
       .setDepth(20);
 
     this.buildTouchBar();
+    this.buildFeedbackPanel();
 
     this.startLevel(this.levelIndex);
 
@@ -200,7 +211,7 @@ export class BattleScene extends Phaser.Scene {
     });
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.researchOpen) return;
+      if (this.researchOpen || this.feedbackOpen) return;
       // Ignore taps on the touch bar strip
       if (p.y >= CANVAS_H - 78 && p.x > CANVAS_W - SIDEBAR_W - 20) return;
       if (p.y >= CANVAS_H - 78 && p.x < 520) {
@@ -269,7 +280,8 @@ export class BattleScene extends Phaser.Scene {
     });
     kb?.on('keydown-Y', () => this.toggleResearch());
     kb?.on('keydown-ESC', () => {
-      if (this.researchOpen) this.toggleResearch(false);
+      if (this.feedbackOpen) this.toggleFeedback(false);
+      else if (this.researchOpen) this.toggleResearch(false);
     });
 
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -386,9 +398,10 @@ export class BattleScene extends Phaser.Scene {
       x: number,
       label: string,
       onClick: () => void,
+      w = 78,
     ): Phaser.GameObjects.Text => {
       const bg = this.add
-        .rectangle(x, y, 88, 28, Look.panelFill, 0.95)
+        .rectangle(x, y, w, 28, Look.panelFill, 0.95)
         .setStrokeStyle(1.5, Look.panelStroke, 0.9)
         .setDepth(30)
         .setInteractive({ useHandCursor: true });
@@ -407,22 +420,119 @@ export class BattleScene extends Phaser.Scene {
       return t;
     };
 
-    this.sellBtnLabel = mk(CANVAS_W / 2 - 200, 'Sell', () => {
+    const cx = CANVAS_W / 2 - 40;
+    mk(cx - 280, 'Feedback', () => this.toggleFeedback(), 86);
+    this.sellBtnLabel = mk(cx - 180, 'Sell', () => {
       this.sellMode = !this.sellMode;
       this.sellBtnLabel.setColor(this.sellMode ? '#f0a0a0' : Look.textGold);
       this.flashToast(this.sellMode ? 'sell mode on' : 'sell mode off');
     });
-    mk(CANVAS_W / 2 - 100, 'Research', () => this.toggleResearch());
-    mk(CANVAS_W / 2, 'Pause', () => {
+    mk(cx - 90, 'Research', () => this.toggleResearch());
+    mk(cx, 'Pause', () => {
       this.paused = !this.paused;
       if (this.paused) this.tweens.pauseAll();
       else this.tweens.resumeAll();
       this.sim.dirty = true;
     });
-    mk(CANVAS_W / 2 + 100, 'Restart', () => this.startLevel(this.levelIndex));
-    mk(CANVAS_W / 2 + 200, 'Next ▶', () =>
+    mk(cx + 90, 'Restart', () => this.startLevel(this.levelIndex));
+    mk(cx + 180, 'Next ▶', () =>
       this.startLevel(clampLevelIndex(this.levelIndex + 1)),
     );
+  }
+
+  private buildFeedbackPanel(): void {
+    this.feedbackRoot = this.add.container(0, 0).setDepth(45).setVisible(false);
+
+    const veil = this.add
+      .rectangle(CANVAS_W / 2, CANVAS_H / 2, CANVAS_W, CANVAS_H, 0x0a0c08, 0.7)
+      .setInteractive();
+    veil.on('pointerdown', () => this.toggleFeedback(false));
+    this.feedbackRoot.add(veil);
+
+    const panel = this.add.graphics();
+    panel.fillStyle(Look.panelFill, 0.98);
+    panel.fillRoundedRect(CANVAS_W / 2 - 220, CANVAS_H / 2 - 150, 440, 300, 12);
+    panel.lineStyle(2, Look.panelStroke, 0.95);
+    panel.strokeRoundedRect(CANVAS_W / 2 - 220, CANVAS_H / 2 - 150, 440, 300, 12);
+    this.feedbackRoot.add(panel);
+
+    this.feedbackRoot.add(
+      this.add
+        .text(CANVAS_W / 2, CANVAS_H / 2 - 120, 'Track for later', {
+          fontFamily: 'Georgia, serif',
+          fontSize: '24px',
+          color: Look.textGold,
+        })
+        .setOrigin(0.5),
+    );
+    this.feedbackRoot.add(
+      this.add
+        .text(
+          CANVAS_W / 2,
+          CANVAS_H / 2 - 85,
+          'File a bug or improvement on GitHub.\nOpens in Safari — come back anytime.',
+          {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: '13px',
+            color: Look.textMuted,
+            align: 'center',
+          },
+        )
+        .setOrigin(0.5),
+    );
+
+    const mkBtn = (y: number, label: string, url: string): void => {
+      const btn = this.add
+        .rectangle(CANVAS_W / 2, y, 300, 44, 0x2a3224, 0.98)
+        .setStrokeStyle(1.5, Look.panelStroke, 0.9)
+        .setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        p.event.stopPropagation();
+        window.open(url, '_blank', 'noopener,noreferrer');
+        this.flashToast('opened tracker');
+      });
+      this.feedbackRoot.add(btn);
+      this.feedbackRoot.add(
+        this.add
+          .text(CANVAS_W / 2, y, label, {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: '16px',
+            color: Look.textGold,
+          })
+          .setOrigin(0.5),
+      );
+    };
+
+    mkBtn(CANVAS_H / 2 - 20, 'Report a bug', BattleScene.FEEDBACK_BUG);
+    mkBtn(CANVAS_H / 2 + 40, 'Suggest improvement', BattleScene.FEEDBACK_IMPROVEMENT);
+    mkBtn(CANVAS_H / 2 + 100, 'Open backlog', BattleScene.FEEDBACK_BOARD);
+
+    const close = this.add
+      .text(CANVAS_W / 2, CANVAS_H / 2 + 145, 'Close', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '13px',
+        color: Look.textMuted,
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    close.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      p.event.stopPropagation();
+      this.toggleFeedback(false);
+    });
+    this.feedbackRoot.add(close);
+  }
+
+  private toggleFeedback(force?: boolean): void {
+    this.feedbackOpen = force ?? !this.feedbackOpen;
+    this.feedbackRoot.setVisible(this.feedbackOpen);
+    if (this.feedbackOpen) {
+      this.researchOpen = false;
+      this.researchRoot?.setVisible(false);
+      this.paused = true;
+      this.tweens.pauseAll();
+    } else {
+      this.sim.dirty = true;
+    }
   }
 
   private buildResearchPanel(): void {
@@ -522,6 +632,8 @@ export class BattleScene extends Phaser.Scene {
     this.researchOpen = force ?? !this.researchOpen;
     this.researchRoot.setVisible(this.researchOpen);
     if (this.researchOpen) {
+      this.feedbackOpen = false;
+      this.feedbackRoot?.setVisible(false);
       this.paused = true;
       this.tweens.pauseAll();
       this.refreshResearchPanel();
