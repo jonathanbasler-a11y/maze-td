@@ -612,7 +612,7 @@ export class BattleScene extends Phaser.Scene {
       const bg = this.add
         .rectangle(x, y, L.btnW, L.btnH, 0x2a342c, 0.98)
         .setStrokeStyle(2, Look.panelStroke, 0.95)
-        .setDepth(30)
+        .setDepth(60)
         .setInteractive({ useHandCursor: true });
       bg.on('pointerdown', (p: Phaser.Input.Pointer) => {
         p.event.stopPropagation();
@@ -626,9 +626,40 @@ export class BattleScene extends Phaser.Scene {
           fontStyle: 'bold',
         })
         .setOrigin(0.5)
-        .setDepth(31);
+        .setDepth(61);
       if (item.sell) this.sellBtnLabel = t;
       x += L.btnW + gap;
+    }
+  }
+
+  /** iOS Safari often blocks window.open from canvas handlers — use an <a> click. */
+  private openExternal(url: string): void {
+    const win = window.open(url, '_blank');
+    if (win) {
+      try {
+        win.opener = null;
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // If still blocked (common on iOS), navigate same tab so the report always opens.
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          window.location.assign(url);
+        }
+      }, 250);
+    } catch {
+      window.location.assign(url);
     }
   }
 
@@ -682,8 +713,8 @@ export class BattleScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
       btn.on('pointerdown', (p: Phaser.Input.Pointer) => {
         p.event.stopPropagation();
-        window.open(url, '_blank', 'noopener,noreferrer');
-        this.flashToast('opened tracker');
+        this.openExternal(url);
+        this.flashToast('opening report…');
       });
       this.feedbackRoot.add(btn);
       this.feedbackRoot.add(
@@ -694,7 +725,13 @@ export class BattleScene extends Phaser.Scene {
             color: Look.textGold,
             fontStyle: 'bold',
           })
-          .setOrigin(0.5),
+          .setOrigin(0.5)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', (p: Phaser.Input.Pointer) => {
+            p.event.stopPropagation();
+            this.openExternal(url);
+            this.flashToast('opening report…');
+          }),
       );
     };
 
@@ -702,19 +739,32 @@ export class BattleScene extends Phaser.Scene {
     mkBtn(this.H / 2 + 40, 'Suggest improvement', BattleScene.FEEDBACK_IMPROVEMENT);
     mkBtn(this.H / 2 + 100, 'Open backlog', BattleScene.FEEDBACK_BOARD);
 
-    const close = this.add
-      .text(this.W / 2, this.H / 2 + 145, 'Close', {
-        fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '13px',
-        color: Look.textMuted,
-      })
-      .setOrigin(0.5)
+    const closeBtn = this.add
+      .rectangle(
+        this.W / 2,
+        this.H / 2 + 148,
+        this.layout.mobile ? 200 : 160,
+        this.layout.mobile ? 48 : 40,
+        0x3a3028,
+        0.98,
+      )
+      .setStrokeStyle(2, Look.panelStroke, 0.9)
       .setInteractive({ useHandCursor: true });
-    close.on('pointerdown', (p: Phaser.Input.Pointer) => {
+    closeBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
       p.event.stopPropagation();
       this.toggleFeedback(false);
     });
-    this.feedbackRoot.add(close);
+    this.feedbackRoot.add(closeBtn);
+    this.feedbackRoot.add(
+      this.add
+        .text(this.W / 2, this.H / 2 + 148, 'Close', {
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: this.layout.mobile ? '18px' : '15px',
+          color: Look.text,
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5),
+    );
   }
 
   private toggleFeedback(force?: boolean): void {
@@ -727,6 +777,8 @@ export class BattleScene extends Phaser.Scene {
       this.paused = true;
       this.tweens.pauseAll();
     } else {
+      this.paused = false;
+      this.tweens.resumeAll();
       this.sim.dirty = true;
     }
   }
@@ -743,6 +795,10 @@ export class BattleScene extends Phaser.Scene {
       0.72,
     );
     veil.setInteractive();
+    veil.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      p.event.stopPropagation();
+      this.toggleResearch(false);
+    });
     this.researchRoot.add(veil);
 
     const panel = this.add.graphics();
@@ -751,6 +807,22 @@ export class BattleScene extends Phaser.Scene {
     panel.lineStyle(2, Look.panelStroke, 0.95);
     panel.strokeRoundedRect(48, 56, this.W - 96, this.H - 112, 12);
     this.researchRoot.add(panel);
+
+    // Absorb taps on the panel body so they don't close via the veil
+    const panelHit = this.add
+      .rectangle(
+        this.W / 2,
+        this.H / 2,
+        this.W - 96,
+        this.H - 112,
+        0x000000,
+        0,
+      )
+      .setInteractive();
+    panelHit.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      p.event.stopPropagation();
+    });
+    this.researchRoot.add(panelHit);
 
     this.researchRoot.add(
       this.add
@@ -776,10 +848,10 @@ export class BattleScene extends Phaser.Scene {
         .text(
           72,
           104,
-          'Earn RP from kills, wave clears, and victories. Click a node to buy. Esc/Tab closes.',
+          'Earn RP from kills / waves / wins. Tap a node to buy. Tap outside or Close to exit.',
           {
             fontFamily: 'Segoe UI, sans-serif',
-            fontSize: '12px',
+            fontSize: this.layout.mobile ? '13px' : '12px',
             color: Look.textMuted,
           },
         ),
@@ -816,11 +888,39 @@ export class BattleScene extends Phaser.Scene {
 
     this.researchRoot.add(
       this.add
-        .text(72, this.H - 72, 'Branches: Offense · Control · Economy · Structure', {
+        .text(72, this.H - 88, 'Branches: Offense · Control · Economy · Structure', {
           fontFamily: 'Segoe UI, sans-serif',
           fontSize: '11px',
           color: Look.textMuted,
         }),
+    );
+
+    const closeY = this.H - 64;
+    const closeBtn = this.add
+      .rectangle(
+        this.W / 2,
+        closeY,
+        this.layout.mobile ? 200 : 160,
+        this.layout.mobile ? 48 : 40,
+        0x3a3028,
+        0.98,
+      )
+      .setStrokeStyle(2, Look.panelStroke, 0.9)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      p.event.stopPropagation();
+      this.toggleResearch(false);
+    });
+    this.researchRoot.add(closeBtn);
+    this.researchRoot.add(
+      this.add
+        .text(this.W / 2, closeY, 'Close', {
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: this.layout.mobile ? '18px' : '15px',
+          color: Look.text,
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5),
     );
   }
 
@@ -835,6 +935,8 @@ export class BattleScene extends Phaser.Scene {
       this.tweens.pauseAll();
       this.refreshResearchPanel();
     } else {
+      this.paused = false;
+      this.tweens.resumeAll();
       this.sim.dirty = true;
     }
   }
