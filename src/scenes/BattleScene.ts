@@ -78,6 +78,9 @@ export class BattleScene extends Phaser.Scene {
   private sellBtnLabel!: Phaser.GameObjects.Text;
   private feedbackRoot!: Phaser.GameObjects.Container;
   private feedbackOpen = false;
+  private wheelRoot!: Phaser.GameObjects.Container;
+  private wheelOpen = false;
+  private wheelCell: Cell | null = null;
 
   private static readonly FEEDBACK_BUG =
     'https://github.com/jonathanbasler-a11y/maze-td/issues/new?template=bug.yml&labels=bug,ios';
@@ -195,11 +198,12 @@ export class BattleScene extends Phaser.Scene {
 
     this.buildTouchBar();
     this.buildFeedbackPanel();
+    this.wheelRoot = this.add.container(0, 0).setDepth(50).setVisible(false);
 
     this.startLevel(this.levelIndex);
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (this.researchOpen || this.feedbackOpen) return;
+      if (this.researchOpen || this.feedbackOpen || this.wheelOpen) return;
       const cell = this.pointerToCell(p.x, p.y);
       this.hover = cell;
       const key = cell ? `${cell.c},${cell.r}` : '';
@@ -211,25 +215,27 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.researchOpen || this.feedbackOpen) return;
       if (p.y >= this.H - barH) return;
+      if (this.wheelOpen) {
+        // Slice buttons handle their own taps; background closes
+        return;
+      }
       const cell = this.pointerToCell(p.x, p.y);
       if (!cell) return;
-      if (this.sellMode || p.rightButtonDown() || p.button === 2) {
+      // Right-click still sells instantly on desktop
+      if (p.rightButtonDown() || p.button === 2) {
         const ok = this.sim.trySell(cell);
         if (!ok) {
           const reason = this.sim.lastRejectReason();
           if (reason) this.flashToast(reason);
         }
-      } else {
-        const ok = this.sim.tryPlace(cell);
-        if (!ok) {
-          const reason = this.sim.lastRejectReason();
-          this.flashToast(reason ?? 'rejected');
-        }
+        this.sim.drainEvents();
+        this.redrawOverlays();
+        this.syncTowers();
+        this.sim.dirty = true;
+        return;
       }
-      this.sim.drainEvents();
-      this.redrawOverlays();
-      this.syncTowers();
-      this.sim.dirty = true;
+      // Tap/click opens build wheel (towers 1–6, sell, cancel)
+      this.openBuildWheel(cell);
     });
 
     const kb = this.input.keyboard;
@@ -274,7 +280,8 @@ export class BattleScene extends Phaser.Scene {
     });
     kb?.on('keydown-Y', () => this.toggleResearch());
     kb?.on('keydown-ESC', () => {
-      if (this.feedbackOpen) this.toggleFeedback(false);
+      if (this.wheelOpen) this.closeBuildWheel();
+      else if (this.feedbackOpen) this.toggleFeedback(false);
       else if (this.researchOpen) this.toggleResearch(false);
     });
 
@@ -286,6 +293,7 @@ export class BattleScene extends Phaser.Scene {
     if (
       !this.paused &&
       !this.researchOpen &&
+      !this.wheelOpen &&
       this.sim.phase !== 'won' &&
       this.sim.phase !== 'lost'
     ) {
@@ -332,6 +340,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private startLevel(index: number): void {
+    this.closeBuildWheel();
     this.fxEpoch++;
     this.activeShots = 0;
     this.tweens.killAll();
@@ -384,6 +393,183 @@ export class BattleScene extends Phaser.Scene {
     this.sidebarKey = '';
     this.updateHud(true);
     this.syncTowers();
+  }
+
+  private openBuildWheel(cell: Cell): void {
+    this.closeBuildWheel();
+    this.wheelCell = { ...cell };
+    this.wheelOpen = true;
+    this.paused = true;
+    this.tweens.pauseAll();
+
+    const L = this.layout;
+    const center = this.cellCenter(cell.c, cell.r);
+    const margin = L.mobile ? 88 : 76;
+    const cx = Phaser.Math.Clamp(center.x, margin, this.W - this.SW - margin);
+    const cy = Phaser.Math.Clamp(
+      center.y,
+      margin,
+      this.H - L.touchBarH - margin,
+    );
+
+    this.wheelRoot.removeAll(true);
+    this.wheelRoot.setVisible(true);
+
+    const veil = this.add
+      .rectangle(this.W / 2, this.H / 2, this.W, this.H, 0x000000, 0.35)
+      .setInteractive();
+    veil.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      p.event.stopPropagation();
+      this.closeBuildWheel();
+    });
+    this.wheelRoot.add(veil);
+
+    // Highlight selected cell
+    const hl = this.add
+      .rectangle(
+        center.x,
+        center.y,
+        this.cell - 2,
+        this.cell - 2,
+        Look.hover,
+        0.35,
+      )
+      .setStrokeStyle(2, Look.panelStroke, 0.95);
+    this.wheelRoot.add(hl);
+
+    type WheelItem = {
+      kind: 'tower' | 'sell' | 'cancel';
+      label: string;
+      sub?: string;
+      color: number;
+      spriteKey?: string;
+      towerId?: TowerId;
+    };
+
+    const items: WheelItem[] = [];
+    for (let i = 0; i < 6; i++) {
+      const tid = this.hotkeyIds[i];
+      if (!tid) continue;
+      const def = this.sim.towerDefs[tid];
+      if (!def) continue;
+      items.push({
+        kind: 'tower',
+        label: String(i + 1),
+        sub: `${def.cost}g`,
+        color: def.color,
+        spriteKey: def.spriteKey,
+        towerId: tid,
+      });
+    }
+    items.push({ kind: 'sell', label: 'Sell', color: 0xd45b5c });
+    items.push({ kind: 'cancel', label: '✕', color: 0x6a6a60 });
+
+    const n = items.length;
+    const radius = L.mobile ? 86 : 72;
+    const btnR = L.mobile ? 30 : 26;
+
+    // Ring guide
+    const ring = this.add.circle(cx, cy, radius, 0x1a2018, 0.55);
+    ring.setStrokeStyle(2, Look.panelStroke, 0.7);
+    this.wheelRoot.add(ring);
+
+    items.forEach((item, i) => {
+      // Start from top, clockwise
+      const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
+      const x = cx + Math.cos(ang) * radius;
+      const y = cy + Math.sin(ang) * radius;
+
+      const btn = this.add
+        .circle(x, y, btnR, 0x243028, 0.98)
+        .setStrokeStyle(3, item.color, 1)
+        .setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        p.event.stopPropagation();
+        this.onWheelPick(item.kind, item.towerId);
+      });
+      this.wheelRoot.add(btn);
+
+      if (item.spriteKey) {
+        const icon = this.add
+          .image(x, y - 4, item.spriteKey)
+          .setDisplaySize(btnR * 1.15, btnR * 1.15);
+        this.wheelRoot.add(icon);
+        const tag = this.add
+          .text(x, y + btnR * 0.55, item.sub ?? item.label, {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: L.mobile ? '12px' : '11px',
+            color: Look.text,
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5);
+        this.wheelRoot.add(tag);
+        const num = this.add
+          .text(x - btnR * 0.55, y - btnR * 0.55, item.label, {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: L.mobile ? '14px' : '12px',
+            color: Look.textGold,
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5);
+        this.wheelRoot.add(num);
+      } else {
+        const t = this.add
+          .text(x, y, item.label, {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: L.mobile ? '16px' : '14px',
+            color: item.kind === 'sell' ? '#f0a0a0' : Look.text,
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5);
+        this.wheelRoot.add(t);
+      }
+    });
+  }
+
+  private onWheelPick(
+    kind: 'tower' | 'sell' | 'cancel',
+    towerId?: TowerId,
+  ): void {
+    const cell = this.wheelCell;
+    this.closeBuildWheel();
+    if (!cell || kind === 'cancel') return;
+
+    if (kind === 'sell') {
+      const ok = this.sim.trySell(cell);
+      if (!ok) {
+        const reason = this.sim.lastRejectReason();
+        if (reason) this.flashToast(reason);
+      }
+    } else if (kind === 'tower' && towerId) {
+      this.sim.setSelectedTower(towerId);
+      const ok = this.sim.tryPlace(cell);
+      if (!ok) {
+        const reason = this.sim.lastRejectReason();
+        this.flashToast(reason ?? 'rejected');
+      }
+    }
+    this.sim.drainEvents();
+    this.redrawOverlays();
+    this.syncTowers();
+    this.updateHud(true);
+    this.sim.dirty = true;
+  }
+
+  private closeBuildWheel(): void {
+    if (!this.wheelOpen && !this.wheelRoot?.visible) {
+      this.wheelRoot?.removeAll(true);
+      this.wheelRoot?.setVisible(false);
+      return;
+    }
+    this.wheelOpen = false;
+    this.wheelCell = null;
+    this.wheelRoot.removeAll(true);
+    this.wheelRoot.setVisible(false);
+    if (!this.researchOpen && !this.feedbackOpen) {
+      this.paused = false;
+      this.tweens.resumeAll();
+    }
+    this.sim.dirty = true;
   }
 
   private buildTouchBar(): void {
@@ -535,6 +721,7 @@ export class BattleScene extends Phaser.Scene {
     this.feedbackOpen = force ?? !this.feedbackOpen;
     this.feedbackRoot.setVisible(this.feedbackOpen);
     if (this.feedbackOpen) {
+      this.closeBuildWheel();
       this.researchOpen = false;
       this.researchRoot?.setVisible(false);
       this.paused = true;
@@ -641,6 +828,7 @@ export class BattleScene extends Phaser.Scene {
     this.researchOpen = force ?? !this.researchOpen;
     this.researchRoot.setVisible(this.researchOpen);
     if (this.researchOpen) {
+      this.closeBuildWheel();
       this.feedbackOpen = false;
       this.feedbackRoot?.setVisible(false);
       this.paused = true;
